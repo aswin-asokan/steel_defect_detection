@@ -13,6 +13,8 @@ The project includes both the machine learning model implementation (backend) an
 - **Full-Stack Application:** Includes a Python backend for model serving and a **Flutter** frontend for a user-friendly, cross-platform interface.
 - **Kaggle Dataset Ready:** Built to handle the standard steel surface defect segmentation datasets (e.g., Severstal Steel Defect Detection).
 
+<img width="1920" height="1080" alt="result" src="https://github.com/user-attachments/assets/cc070838-a104-4407-98e7-b0260641b87e" />
+
 ## 🚀 Technology Stack
 
 | Component       | Technology                       | Description                                                |
