@@ -8,7 +8,7 @@ The project includes both the machine learning model implementation (backend) an
 
 ## ✨ Key Features
 
-- **High-Accuracy Segmentation:** Leverages the power of the Segment Anything Model (SAM) for precise defect localization.
+- **High Accuracy Segmentation:** Leverages the power of the Segment Anything Model (SAM) for precise defect localization.
 - **Efficient Fine-Tuning:** Uses LoRA to fine-tune the SAM base model on custom steel defect datasets with minimal computational resources.
 - **Full-Stack Application:** Includes a Python backend for model serving and a **Flutter** frontend for a user-friendly, cross-platform interface.
 - **Kaggle Dataset Ready:** Built to handle the standard steel surface defect segmentation datasets (e.g., Severstal Steel Defect Detection).
@@ -76,7 +76,7 @@ flutter doctor
 
 ### 🧠 Usage
 
-#### A. Training the Model   
+#### A. Training the Model
 
 1. Ensure your steel defect images and segmentation masks are placed within the `./dataset` directory following the structure expected by the `train1.py` script.
 
@@ -88,11 +88,11 @@ python train1.py
 
 The trained LoRA weights will be saved in the `./sam_steel_lora` directory.
 
-#### B. Running the Backend Server   
+#### B. Running the Backend Server
 
 The `backend.py` file exposes an API endpoint for performing defect detection inference.
 
-1. Start the backend server:   
+1. Start the backend server:
 
 ```bash
 python backend.py
@@ -134,8 +134,8 @@ steel_defect_detection/
 ```bibtext
 @ARTICLE{11062120,
   author={Su, Jiaojiao and Luo, Qiwu and Gui, Weihua and Yang, Chunhua},
-  journal={IEEE Transactions on Industrial Informatics}, 
-  title={Few-Shot Parameter Efficient Finetuning for SAM in Salient Steel Surface Defect Detection}, 
+  journal={IEEE Transactions on Industrial Informatics},
+  title={Few-Shot Parameter Efficient Finetuning for SAM in Salient Steel Surface Defect Detection},
   year={2025},
   volume={21},
   number={10},
