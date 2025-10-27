@@ -123,7 +123,7 @@ steel_defect_detection/
 ├── sam_steel_lora/              # Saved LoRA weights for the fine-tuned SAM model
 ├── sample/                      # Sample input/output images
 ├── .gitignore                   # Standard ignore file
-├── Figure_1.png                 # Visualization of the model architecture or sample result ├── backend.py                   # Python script to serve the trained model as an API
+├── backend.py                   # Python script to serve the trained model as an API
 ├── requirements.txt             # Python dependencies list
 ├── test1.py                     # Script for evaluating the model on a test set
 └── train1.py                    # Script for training and fine-tuning the SAM model with LoRA
