@@ -38,6 +38,7 @@ dependencies:
   image_picker: ^1.2.0
   image_picker_for_web: ^3.1.0
   google_fonts: ^6.3.2
+  typed_data: ^1.4.0
 
 dev_dependencies:
   flutter_test:

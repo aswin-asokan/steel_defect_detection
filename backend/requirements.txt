@@ -8,6 +8,7 @@ scikit-image>=0.22.0
 numpy>=1.26.0
 Pillow>=10.0.0
 matplotlib>=3.8.0
+opencv-python>=4.8.0
 
 # ------------------------------
 # Backend (Flask API)

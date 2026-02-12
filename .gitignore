@@ -47,3 +47,4 @@ frontend/android/app/release
 
 
 .venv/
+env/
