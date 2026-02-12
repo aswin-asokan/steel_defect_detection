@@ -1,3 +1,4 @@
+// dashrectpainter.dart
 import 'package:flutter/material.dart';
 
 class DashRectPainter extends CustomPainter {
@@ -21,15 +22,12 @@ class DashRectPainter extends CustomPainter {
       ..color = color
       ..strokeWidth = strokeWidth
       ..style = PaintingStyle.stroke;
-
     final rrect = RRect.fromRectAndRadius(
       Rect.fromLTWH(0, 0, size.width, size.height),
       Radius.circular(borderRadius),
     );
-
     final path = Path()..addRRect(rrect);
     final dashPath = Path();
-
     for (final metric in path.computeMetrics()) {
       double distance = 0.0;
       while (distance < metric.length) {
@@ -41,7 +39,6 @@ class DashRectPainter extends CustomPainter {
         distance = next + gapLength;
       }
     }
-
     canvas.drawPath(dashPath, paint);
   }
 
