@@ -1,0 +1,18 @@
+# Ultralytics YOLO
+ultralytics>=8.2.0
+
+# Image processing
+opencv-python>=4.8.0
+Pillow>=10.0.0
+
+# Numerical operations
+numpy>=1.24.0
+
+# Utilities (used internally by ultralytics)
+tqdm>=4.66.0
+PyYAML>=6.0
+matplotlib>=3.7.0
+scipy>=1.10.0
+
+#cude
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
