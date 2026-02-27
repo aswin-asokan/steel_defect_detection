@@ -48,3 +48,8 @@ frontend/android/app/release
 
 .venv/
 env/
+
+yolo26/venv/
+yolo26/logs/
+yolo26/MobileSAM/
+yolo26/mobilesam_defect_optimized/
