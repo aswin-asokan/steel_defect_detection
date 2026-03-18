@@ -53,3 +53,33 @@ yolo26/venv/
 yolo26/logs/
 yolo26/MobileSAM/
 yolo26/mobilesam_defect_optimized/
+
+# ------------------------------
+# Backend Large Artifacts
+# ------------------------------
+backend/.venv/
+backend/__pycache__/
+backend/*.pyc
+backend/logs/
+backend/camera_outputs/
+
+# Model checkpoints / weights
+backend/mobile_sam.pt
+backend/mobilesam_defect_optimized/*.pth
+backend/sam_steel_lora/**/*.safetensors
+backend/sam_steel_lora/**/training_progress.png
+backend/yolo26/**/*.pt
+backend/yolo26/**/weights/
+backend/MobileSAM/weights/
+
+# Large datasets and training outputs
+backend/dataset/
+backend/yolo26/NEU-DET/
+backend/yolo26/neu_det/
+backend/yolo26/runs/
+backend/yolo26/results/
+backend/mobilesa,.pt
+backend/mobilesam_defect_optimized/
+backend/MobileSAM/
+# Ignore embedded git metadata if MobileSAM was copied as a repo
+backend/MobileSAM/.git/
