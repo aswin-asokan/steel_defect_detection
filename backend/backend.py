@@ -6,6 +6,7 @@ from __future__ import annotations
 import base64
 import csv
 import json
+import os
 import sys
 import threading
 import time
@@ -36,6 +37,7 @@ MODE_SAM = "sam"
 MODE_MOBILE_SAM = "mobilesam"
 MODE_YOLO26 = "yolo26"
 MODE_YOLO26_MOBILE_SAM = "yolo26_mobilesam"
+MODE_MOBILE_SAM_YOLO26 = "mobilesam_yolo26"
 SUPPORTED_MODES = {
     MODE_SAM,
     MODE_MOBILE_SAM,
@@ -52,9 +54,17 @@ SWITCH_OPTIONS: dict[str, dict[str, Any]] = {
     "sam": {"mode": MODE_SAM, "use_preprocess": False},
     "mobilesam": {"mode": MODE_MOBILE_SAM, "use_preprocess": False},
     "yolo26": {"mode": MODE_YOLO26, "use_preprocess": False},
-    "yolo26_mobilesam": {"mode": MODE_YOLO26_MOBILE_SAM, "use_preprocess": False},
-    "preprocess_yolo26_mobilesam": {"mode": MODE_YOLO26_MOBILE_SAM, "use_preprocess": True},
+    "yolo26_mobilesam": {"mode": MODE_YOLO26_MOBILE_SAM, "use_preprocess": False, "sam_use_preprocessed_input": False},
 }
+
+
+@dataclass
+class PreprocessReference:
+    ready: bool
+    target_cdf: np.ndarray | None = None
+    target_mean: float = 128.0
+    target_std: float = 45.0
+    source_count: int = 0
 
 
 @dataclass
@@ -101,8 +111,9 @@ def get_model_paths() -> ModelPaths:
 
 @dataclass
 class RuntimeConfig:
-    mode: str = MODE_YOLO26_MOBILE_SAM
+    mode: str = MODE_YOLO26
     use_preprocess: bool = False
+    sam_use_preprocessed_input: bool = False
     process_interval: float = 0.08
     yolo_conf: float = 0.25
     sam_threshold: float = 0.6
@@ -126,6 +137,8 @@ class ConfigStore:
                 self._cfg.mode = mode
             if "use_preprocess" in payload:
                 self._cfg.use_preprocess = bool(payload["use_preprocess"])
+            if "sam_use_preprocessed_input" in payload:
+                self._cfg.sam_use_preprocessed_input = bool(payload["sam_use_preprocessed_input"])
             if "yolo_conf" in payload:
                 self._cfg.yolo_conf = float(payload["yolo_conf"])
             if "sam_threshold" in payload:
@@ -347,28 +360,101 @@ def _ensure_odd(k: int) -> int:
     return k if k % 2 else k + 1
 
 
+def build_neudet_reference(max_images: int = 700) -> PreprocessReference:
+    """Build NEU-DET grayscale distribution reference for histogram matching."""
+    candidate_dirs = [
+        BASE_DIR / "yolo26" / "neu_det" / "images" / "train",
+        BASE_DIR / "yolo26" / "neu_det" / "images" / "val",
+        BASE_DIR / "yolo26" / "NEU-DET" / "IMAGES",
+    ]
+
+    hist = np.zeros((256,), dtype=np.float64)
+    total_px = 0.0
+    sum_px = 0.0
+    sum_sq = 0.0
+    count = 0
+
+    for folder in candidate_dirs:
+        if not folder.exists():
+            continue
+        for img_path in sorted(folder.glob("*.jpg")):
+            img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
+            if img is None:
+                continue
+            px = img.astype(np.float32)
+            hist += np.bincount(img.ravel(), minlength=256).astype(np.float64)
+            total_px += float(px.size)
+            sum_px += float(px.sum())
+            sum_sq += float(np.square(px).sum())
+            count += 1
+            if count >= max_images:
+                break
+        if count >= max_images:
+            break
+
+    if count == 0 or total_px <= 0:
+        return PreprocessReference(ready=False, source_count=0)
+
+    target_mean = sum_px / total_px
+    variance = max(1.0, (sum_sq / total_px) - (target_mean * target_mean))
+    target_std = float(np.sqrt(variance))
+    target_cdf = np.cumsum(hist)
+    target_cdf /= max(1.0, target_cdf[-1])
+    return PreprocessReference(
+        ready=True,
+        target_cdf=target_cdf.astype(np.float32),
+        target_mean=float(target_mean),
+        target_std=float(target_std),
+        source_count=count,
+    )
+
+
+PREPROCESS_REF = build_neudet_reference()
+
+
 def preprocess_frame(frame: np.ndarray) -> np.ndarray:
-    """Preprocess video frame to look like NEU-DET grayscale-style training images."""
+    """Preprocess frame to better match NEU-DET texture/illumination distribution."""
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
+    # 1) Illumination flattening (remove large-scale shading)
     bg_k = _ensure_odd(max(3, min(51, min(frame.shape[:2]) - 1)))
     background = cv2.GaussianBlur(gray, (bg_k, bg_k), 0)
-    corrected = cv2.divide(gray, background, scale=255.0)
-    corrected = np.clip(corrected, 0, 255).astype(np.uint8)
+    corrected = cv2.divide(gray, background, scale=255.0).astype(np.uint8)
+    enhanced = cv2.addWeighted(gray, 0.35, corrected, 0.65, 0)
 
+    # 2) Local contrast enhancement
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    enhanced = clahe.apply(corrected)
+    enhanced = clahe.apply(enhanced)
     enhanced = cv2.GaussianBlur(enhanced, (3, 3), 0)
 
+    # 3) Suppress only strong glare regions (avoid over-inpainting details)
     bright_mask = (enhanced >= 240).astype(np.uint8) * 255
-    if np.any(bright_mask):
+    bright_ratio = float(np.count_nonzero(bright_mask)) / float(bright_mask.size)
+    if bright_ratio > 0.01:
         bright_mask = cv2.dilate(bright_mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)), iterations=1)
         try:
             enhanced = cv2.inpaint(enhanced, bright_mask, 3, cv2.INPAINT_TELEA)
         except cv2.error:
             pass
 
-    enhanced = cv2.normalize(enhanced, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    # 4) Match histogram to NEU-DET reference distribution
+    if PREPROCESS_REF.ready and PREPROCESS_REF.target_cdf is not None:
+        src_hist = np.bincount(enhanced.ravel(), minlength=256).astype(np.float64)
+        src_cdf = np.cumsum(src_hist)
+        src_cdf /= max(1.0, src_cdf[-1])
+        lut = np.interp(src_cdf, PREPROCESS_REF.target_cdf, np.arange(256)).astype(np.uint8)
+        enhanced = cv2.LUT(enhanced, lut)
+
+    # 5) Align mean/std toward training domain and sharpen subtle defects
+    src_mean, src_std = cv2.meanStdDev(enhanced)
+    s_mean = float(src_mean[0][0])
+    s_std = max(1.0, float(src_std[0][0]))
+    scale = PREPROCESS_REF.target_std / s_std if PREPROCESS_REF.ready else 1.0
+    shift = (PREPROCESS_REF.target_mean - s_mean * scale) if PREPROCESS_REF.ready else 0.0
+    enhanced = np.clip(enhanced.astype(np.float32) * scale + shift, 0, 255).astype(np.uint8)
+    enhanced = cv2.addWeighted(enhanced, 1.15, cv2.GaussianBlur(enhanced, (0, 0), 1.0), -0.15, 0)
+
+    enhanced = np.clip(enhanced, 0, 255).astype(np.uint8)
     return cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
 
 
@@ -527,6 +613,7 @@ def process_frame(frame: np.ndarray, frame_idx: int, cfg: RuntimeConfig) -> dict
         "sam_confidence": 0.0,
         "defect_types": [],
         "mask": None,
+        "preprocessed_frame": processed if cfg.use_preprocess else None,
     }
 
     if cfg.mode == MODE_SAM:
@@ -558,19 +645,57 @@ def process_frame(frame: np.ndarray, frame_idx: int, cfg: RuntimeConfig) -> dict
         )
         return result
 
+    if cfg.mode == MODE_MOBILE_SAM_YOLO26:
+        h, w = frame.shape[:2]
+        mask, conf = run_mobilesam_on_roi(frame, [0, 0, w, h], cfg.sam_threshold)
+        display, contours, area = overlay_mask(frame, mask)
+
+        masked_for_yolo = frame.copy()
+        masked_for_yolo[mask == 0] = 0
+        detections = run_yolo(masked_for_yolo, cfg.yolo_conf)
+        if not detections:
+            # fallback: run YOLO on original frame if masked input is too strict
+            detections = run_yolo(frame, cfg.yolo_conf)
+
+        display = draw_detections(display, detections)
+        result.update(
+            {
+                "frame": display,
+                "defect": bool(np.any(mask)) or bool(detections),
+                "detections": detections,
+                "defect_types": sorted({d["type"] for d in detections}),
+                "contours": contours,
+                "sam_confidence": conf,
+                "mask": mask,
+            }
+        )
+        if detections:
+            logger.log_detection(
+                frame_idx=frame_idx,
+                frame=frame,
+                overlay=display,
+                mask=mask,
+                sam_confidence=conf,
+                defect_area_px=area,
+                detections=detections,
+            )
+        return result
+
     detections = run_yolo(processed, cfg.yolo_conf)
     result["detections"] = detections
     result["defect"] = bool(detections)
     result["defect_types"] = sorted({d["type"] for d in detections})
 
     if cfg.mode == MODE_YOLO26:
-        result["frame"] = draw_detections(frame, detections)
+        base_for_display = processed if cfg.use_preprocess else frame
+        result["frame"] = draw_detections(base_for_display, detections)
         return result
 
-    display = draw_detections(frame, detections)
+    base_for_display = processed if cfg.use_preprocess else frame
+    display = draw_detections(base_for_display, detections)
     if detections:
         union = union_bbox([d["bbox"] for d in detections], frame.shape)
-        sam_input = processed if cfg.use_preprocess else frame
+        sam_input = processed if (cfg.use_preprocess and cfg.sam_use_preprocessed_input) else frame
         mask, sam_conf = run_mobilesam_on_roi(sam_input, union, cfg.sam_threshold)
         display, contours, area = overlay_mask(display, mask)
         logger.log_detection(
@@ -614,6 +739,8 @@ latest_snapshot: dict[str, Any] = {
 latest_pattern_summary: dict[str, Any] | None = None
 
 stop_event = threading.Event()
+predict_frame_counter = 0
+predict_counter_lock = threading.Lock()
 
 
 def run_auto_pattern_detection() -> dict[str, Any] | None:
@@ -675,7 +802,7 @@ def camera_worker() -> None:
             cv2.putText(annotated, f"Mode: {cfg.mode}", (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 0), 2)
             cv2.putText(annotated, f"FPS: {avg_fps:.1f}", (10, 54), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 0), 2)
             if cfg.use_preprocess and cfg.mode in {MODE_YOLO26, MODE_YOLO26_MOBILE_SAM}:
-                cv2.putText(annotated, "Preprocess: ON", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 200, 0), 2)
+                cv2.putText(annotated, f"Preprocess: ON (SAM pre={cfg.sam_use_preprocessed_input})", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 200, 0), 2)
 
             image_b64 = _encode_frame_b64(annotated)
             fps_by_mode = {mode: float(np.mean(q)) if q else 0.0 for mode, q in fps_queues.items()}
@@ -755,6 +882,12 @@ def _model_status_payload() -> dict[str, Any]:
             "active": str(model_hub.sam_lora_path.resolve()) if model_hub.sam_lora_path else None,
             "candidates": [{"path": str(p.resolve()), "exists": p.exists()} for p in paths.sam_lora_candidates],
         },
+        "preprocess_reference": {
+            "ready": PREPROCESS_REF.ready,
+            "source_count": PREPROCESS_REF.source_count,
+            "target_mean": PREPROCESS_REF.target_mean,
+            "target_std": PREPROCESS_REF.target_std,
+        },
     }
 
 
@@ -769,6 +902,9 @@ def _ensure_models_for_mode(mode: str) -> dict[str, Any]:
         elif mode == MODE_YOLO26_MOBILE_SAM:
             model_hub.get_yolo()
             model_hub.get_mobile_sam()
+        elif mode == MODE_MOBILE_SAM_YOLO26:
+            model_hub.get_mobile_sam()
+            model_hub.get_yolo()
     except Exception as exc:
         return {"ok": False, "message": str(exc)}
     return {"ok": True, "message": "Model(s) loaded/validated"}
@@ -786,6 +922,7 @@ def _runtime_cfg_for_option(option: str | None, use_preprocess: bool | None) -> 
         cfg = RuntimeConfig(
             mode=mapped["mode"],
             use_preprocess=bool(mapped["use_preprocess"]),
+            sam_use_preprocessed_input=bool(mapped.get("sam_use_preprocessed_input", False)),
             process_interval=current.process_interval,
             yolo_conf=current.yolo_conf,
             sam_threshold=current.sam_threshold,
@@ -807,8 +944,8 @@ def methods() -> Response:
                 {
                     "id": MODE_YOLO26_MOBILE_SAM,
                     "name": "YOLO26 + MobileSAM",
-                    "supports_preprocess": True,
-                    "notes": "Logs + pattern detection enabled in this mode",
+                    "supports_preprocess": False,
+                    "notes": "YOLO first, then MobileSAM segmentation",
                 },
             ],
         }
@@ -824,8 +961,7 @@ def switch_options() -> Response:
                 {"id": "sam", "label": "SAM"},
                 {"id": "mobilesam", "label": "mobileSAM"},
                 {"id": "yolo26", "label": "yolo26"},
-                {"id": "yolo26_mobilesam", "label": "mobileSAM+yolo26"},
-                {"id": "preprocess_yolo26_mobilesam", "label": "preprocess+yolo26+mobileSAM"},
+                {"id": "yolo26_mobilesam", "label": "yolo26+mobileSAM"},
             ],
         }
     )
@@ -917,8 +1053,13 @@ def predict() -> Response:
         return jsonify({"status": "error", "message": f"Invalid image: {exc}"}), 400
 
     started = time.time()
+    with predict_counter_lock:
+        global predict_frame_counter
+        predict_frame_counter += 1
+        frame_idx = predict_frame_counter
+
     try:
-        result = process_frame(frame, frame_idx=0, cfg=cfg)
+        result = process_frame(frame, frame_idx=frame_idx, cfg=cfg)
     except Exception as exc:
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(exc)}), 500
@@ -942,6 +1083,8 @@ def predict() -> Response:
         mask = result["mask"].astype(np.uint8)
         mask_rgb = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
         payload["binary_mask"] = _encode_frame_b64(mask_rgb)
+    if result.get("preprocessed_frame") is not None:
+        payload["preprocessed_image"] = _encode_frame_b64(result["preprocessed_frame"])
 
     return jsonify(payload)
 
@@ -1001,8 +1144,11 @@ def shutdown() -> Response:
     return jsonify({"status": "ok"})
 
 
-worker = threading.Thread(target=camera_worker, daemon=True)
-worker.start()
+ENABLE_LOCAL_CAMERA = os.getenv("ENABLE_LOCAL_CAMERA", "1").lower() in {"1", "true", "yes"}
+worker: threading.Thread | None = None
+if ENABLE_LOCAL_CAMERA:
+    worker = threading.Thread(target=camera_worker, daemon=True)
+    worker.start()
 
 if __name__ == "__main__":
     try:
