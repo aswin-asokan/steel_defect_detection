@@ -1,9 +1,11 @@
 # Miscellaneous
+.vscode/
+.DS_Store
+Thumbs.db
 *.class
 *.log
 *.pyc
 *.swp
-.DS_Store
 .atom/
 .build/
 .buildlog/

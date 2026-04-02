@@ -1,4 +1,19 @@
 .vscode/
+.codex/
+.DS_Store
+Thumbs.db
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environment files
+.env
+.env.*
+
 # Miscellaneous
 frontend/*.class
 frontend/*.log
