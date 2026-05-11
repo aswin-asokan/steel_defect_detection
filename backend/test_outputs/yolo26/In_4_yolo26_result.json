@@ -1,0 +1,58 @@
+{
+  "status": "success",
+  "mode": "yolo26",
+  "image": "/home/aswin/Documents/Github/steel_defect_detection/backend/sample/In_4.bmp",
+  "overlay_image": "/home/aswin/Documents/Github/steel_defect_detection/backend/test_outputs/yolo26/In_4_yolo26_overlay.jpg",
+  "defect": true,
+  "defect_types": [
+    "inclusion"
+  ],
+  "detections": [
+    {
+      "type": "inclusion",
+      "confidence": 0.8741936087608337,
+      "class_id": 1,
+      "bbox": [
+        94,
+        3,
+        119,
+        44
+      ]
+    },
+    {
+      "type": "inclusion",
+      "confidence": 0.6688783168792725,
+      "class_id": 1,
+      "bbox": [
+        90,
+        42,
+        114,
+        138
+      ]
+    },
+    {
+      "type": "inclusion",
+      "confidence": 0.29478776454925537,
+      "class_id": 1,
+      "bbox": [
+        91,
+        77,
+        110,
+        138
+      ]
+    },
+    {
+      "type": "inclusion",
+      "confidence": 0.09854096919298172,
+      "class_id": 1,
+      "bbox": [
+        91,
+        40,
+        113,
+        138
+      ]
+    }
+  ],
+  "contours": 0,
+  "sam_confidence": 0.0
+}
