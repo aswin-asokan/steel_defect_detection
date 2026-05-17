@@ -8,11 +8,14 @@ Real-time steel surface defect inspection using a hybrid computer vision pipelin
 - Flask backend for inference, video processing, logging, and pattern analysis
 - Flutter frontend for live monitoring from a local backend camera or mobile camera upload
 
-![Example result](backend/sample/example_result.jpeg)
+![Example result](https://github.com/user-attachments/assets/69b7041b-3508-4e06-ae70-17ef3ce06b85)
 
 ## Current Project Status
 
 The repository is currently organized as a full-stack prototype for training, testing, and running steel defect detection in real time.
+
+<img width="1162" height="536" alt="arch" src="https://github.com/user-attachments/assets/195d0000-77d0-4125-8e58-514b71297941" />
+
 
 | Area | Current implementation |
 | --- | --- |
@@ -39,7 +42,10 @@ YOLO26s is used as the real-time screening model. It detects six NEU-DET defect 
 
 The training script is [backend/yolo26/train_neudet.py](backend/yolo26/train_neudet.py). Pascal VOC annotations can be converted to YOLO format with [backend/yolo26/voc_to_yolo.py](backend/yolo26/voc_to_yolo.py).
 
-Paper-reported YOLO26s performance:
+YOLO26s performance:
+
+<img width="2400" height="1200" alt="YOLO_result" src="https://github.com/user-attachments/assets/f5392021-63e3-4c9a-a940-d4d5d3aaf8f1" />
+
 
 | Metric | Value |
 | --- | --- |
@@ -59,7 +65,10 @@ MobileSAM is used for efficient pixel-level segmentation. The current training a
 
 Training script: [backend/train_mobile_sam.py](backend/train_mobile_sam.py)
 
-Paper-reported MobileSAM performance:
+MobileSAM performance:
+
+<img width="1600" height="533" alt="training_performance" src="https://github.com/user-attachments/assets/c6b134dd-986c-4710-bf2c-15c36c3e2571" />
+
 
 | Metric | Value |
 | --- | --- |
@@ -82,7 +91,9 @@ backend/sam_steel_lora/checkpoint_epoch_4/
 backend/sam_steel_lora/checkpoint_epoch_6/
 ```
 
-Paper-reported SAM + LoRA performance:
+SAM + LoRA performance:
+
+<img width="800" height="500" alt="training_progress_SAM" src="https://github.com/user-attachments/assets/85f33628-db6a-48f1-860d-deebba72850a" />
 
 | Metric | Value |
 | --- | --- |
