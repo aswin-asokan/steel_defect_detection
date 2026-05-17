@@ -1,139 +1,340 @@
-# 🤖 Steel Defect Detection (SAM + LoRA)
+# Steel Surface Defect Detection and Segmentation
 
-## 🌟 Project Overview
+Real-time steel surface defect inspection using a hybrid computer vision pipeline:
 
-This repository hosts a comprehensive solution for **automated steel surface defect detection and segmentation**. It utilizes state-of-the-art computer vision techniques, specifically fine-tuning the **Segment Anything Model (SAM)** using **LoRA (Low-Rank Adaptation)**, to accurately identify and delineate defects like pits, cracks, and scratches on steel surfaces.
+- YOLO26s for fast defect localization and type detection
+- MobileSAM for pixel-level segmentation on detected regions
+- SAM ViT-B + LoRA as a full segmentation baseline
+- Flask backend for inference, video processing, logging, and pattern analysis
+- Flutter frontend for live monitoring from a local backend camera or mobile camera upload
 
-The project includes both the machine learning model implementation (backend) and a cross-platform user interface (frontend) for practical deployment and visualization.
+![Example result](backend/sample/example_result.jpeg)
 
-## ✨ Key Features
+## Current Project Status
 
-- **High Accuracy Segmentation:** Leverages the power of the Segment Anything Model (SAM) for precise defect localization.
-- **Efficient Fine-Tuning:** Uses LoRA to fine-tune the SAM base model on custom steel defect datasets with minimal computational resources.
-- **Full-Stack Application:** Includes a Python backend for model serving and a **Flutter** frontend for a user-friendly, cross-platform interface.
-- **Kaggle Dataset Ready:** Built to handle the standard steel surface defect segmentation datasets (e.g., Severstal Steel Defect Detection).
+The repository is currently organized as a full-stack prototype for training, testing, and running steel defect detection in real time.
 
-<img width="1920" height="1080" alt="result" src="https://github.com/user-attachments/assets/cc070838-a104-4407-98e7-b0260641b87e" />
+| Area | Current implementation |
+| --- | --- |
+| Detection | YOLO26s trained on NEU-DET style bounding-box annotations |
+| Segmentation | Fine-tuned MobileSAM for efficient defect masks |
+| Baseline segmentation | SAM ViT-B with LoRA adapters saved under `backend/sam_steel_lora/` |
+| Hybrid runtime | YOLO26 first, then MobileSAM only on the union ROI of detected boxes |
+| Backend | Flask API in `backend/backend.py` with model switching, live camera snapshots, upload inference, logs, and pattern summaries |
+| Frontend | Flutter app in `frontend/` with live method switching and detection status panels |
+| Logging | CSV, JSON, raw frames, overlays, masks, and pattern summaries under `backend/logs/` |
 
-## 🚀 Technology Stack
+## Methods
 
-| Component       | Technology                       | Description                                                |
-| :-------------- | :------------------------------- | :--------------------------------------------------------- |
-| **Model**       | **SAM (Segment Anything Model)** | Foundation model for image segmentation.                   |
-| **Fine-Tuning** | **LoRA**                         | Efficiently adapts SAM to the steel domain data.           |
-| **Backend/ML**  | **Python**, **PyTorch**          | Training, testing, and serving the defect detection model. |
-| **Frontend**    | **Dart**, **Flutter**            | Provides a responsive, cross-platform GUI for inference.   |
+### YOLO26 Detection
 
-## 🛠️ Installation and Setup
+YOLO26s is used as the real-time screening model. It detects six NEU-DET defect classes:
 
-### 1. Prerequisites
+- `crazing`
+- `inclusion`
+- `patches`
+- `pitted_surface`
+- `rolled_in_scale`
+- `scratches`
 
-Before starting, ensure you have the following installed:
+The training script is [backend/yolo26/train_neudet.py](backend/yolo26/train_neudet.py). Pascal VOC annotations can be converted to YOLO format with [backend/yolo26/voc_to_yolo.py](backend/yolo26/voc_to_yolo.py).
 
-- **Python 3.8+**
-- **Flutter SDK** (for the frontend)
-- **Git**
+Paper-reported YOLO26s performance:
 
-### 2. Clone the Repository
+| Metric | Value |
+| --- | --- |
+| Precision | about 0.70-0.72 |
+| Recall | about 0.70 |
+| mAP@50 | 0.753 |
+| mAP@50-95 | about 0.44 |
+| Video speed | over 30 FPS |
 
-```bash
-git clone [https://github.com/aswin-asokan/steel_defect_detection.git](https://github.com/aswin-asokan/steel_defect_detection.git)
-cd steel_defect_detection
+### MobileSAM Segmentation
+
+MobileSAM is used for efficient pixel-level segmentation. The current training approach freezes the image encoder and fine-tunes the prompt encoder and mask decoder. The loss combines Dice, Focal, and Boundary losses:
+
+```text
+0.6 Dice + 0.3 Focal + 0.1 Boundary
 ```
 
-### Backend Setup
+Training script: [backend/train_mobile_sam.py](backend/train_mobile_sam.py)
 
-The machine learning core is built with Python.
+Paper-reported MobileSAM performance:
 
-1. Create a virtual environment:
+| Metric | Value |
+| --- | --- |
+| Validation IoU | about 0.56-0.57 peak |
+| Dice score | about 0.68-0.69 peak |
+| Video speed | about 8-10 FPS |
 
-```bash
-python -m venv venv
-source venv/bin/activate # On Linux/macOS
-# venv\Scripts\activate # On Windows
+### SAM + LoRA Baseline
+
+The SAM baseline uses `facebook/sam-vit-base` with LoRA adapters applied to attention and feed-forward layers. Only adapter parameters are trained while the base model remains frozen.
+
+Training script: [backend/train_sam.py](backend/train_sam.py)
+
+Saved adapters are in:
+
+```text
+backend/sam_steel_lora/
+backend/sam_steel_lora/checkpoint_epoch_2/
+backend/sam_steel_lora/checkpoint_epoch_4/
+backend/sam_steel_lora/checkpoint_epoch_6/
 ```
 
-2. Install Python dependencies:
+Paper-reported SAM + LoRA performance:
+
+| Metric | Value |
+| --- | --- |
+| Validation IoU | about 0.60 |
+| Video speed | about 1-3 FPS |
+
+### Hybrid Real-Time Pipeline
+
+The preferred deployment mode is:
+
+```text
+camera/image frame -> YOLO26s detection -> union bounding-box ROI -> MobileSAM mask -> overlay + logs + pattern analysis
+```
+
+This keeps inference fast by avoiding segmentation on frames where no defect is detected.
+
+### Pattern Analysis
+
+The backend records detection events and analyzes recurring defects over time. Pattern analysis groups detections into fixed time windows, counts defect labels, and flags windows where one defect type dominates. This is intended to help identify repeated process issues such as misalignment, contamination, or recurring manufacturing faults.
+
+Implementation: [backend/pattern_service.py](backend/pattern_service.py)
+
+## Project Structure
+
+```text
+steel_defect_detection/
+|-- Journal_Paper.pdf
+|-- readme.md
+|-- backend/
+|   |-- backend.py                    # Flask inference server and live camera worker
+|   |-- pattern_service.py            # CSV-based recurring defect analysis
+|   |-- train_sam.py                  # SAM ViT-B + LoRA training
+|   |-- train_mobile_sam.py           # MobileSAM fine-tuning
+|   |-- requirements.txt
+|   |-- dataset/
+|   |   |-- source_images/            # Segmentation training images
+|   |   `-- ground_truth/             # Segmentation masks
+|   |-- sam_steel_lora/               # Saved SAM LoRA adapters
+|   |-- mobilesam_defect_optimized/   # MobileSAM best/final weights
+|   |-- yolo26/
+|   |   |-- train_neudet.py
+|   |   |-- voc_to_yolo.py
+|   |   |-- NEU-DET/                  # Original XML/image dataset layout
+|   |   |-- neu_det/                  # YOLO-formatted dataset
+|   |   `-- runs/                     # YOLO training outputs
+|   |-- sample/                       # Sample images and visual results
+|   |-- logs/                         # Runtime logs, masks, overlays, pattern JSON
+|   `-- others/                       # Experiment and test scripts
+`-- frontend/
+    |-- lib/
+    |   |-- main.dart
+    |   `-- frontend.dart
+    `-- pubspec.yaml
+```
+
+## Setup
+
+### Backend
+
+Run backend commands from the `backend/` directory.
 
 ```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Frontend Setup
+The backend expects model assets in these locations, or compatible fallback paths defined in `backend.py`:
 
-The user interface is a Flutter application.
+```text
+backend/yolo26/runs/detect/train5/weights/best.pt
+backend/yolo26/runs/yolo26s_ppy/exp_light/weights/best.pt
+backend/yolo26/yolo26s.pt
+backend/mobile_sam.pt
+backend/MobileSAM/weights/mobile_sam.pt
+backend/mobilesam_defect_optimized/best_model.pth
+backend/mobilesam_defect_optimized/final_model.pth
+backend/sam_steel_lora/
+```
 
-1. Navigate to the frontend directory:
+### Frontend
 
 ```bash
 cd frontend
-```
-
-2. Get packages and ensure Flutter is ready:
-
-```bash
 flutter pub get
-flutter doctor
 ```
 
-### 🧠 Usage
+The Flutter app currently points to:
 
-#### A. Training the Model
-
-1. Ensure your steel defect images and segmentation masks are placed within the `./dataset` directory following the structure expected by the `train1.py` script.
-
-2. Run the training script, which will apply the LoRA fine-tuning to the base SAM model:
-
-```bash
-python train1.py
+```text
+http://127.0.0.1:5000
 ```
 
-The trained LoRA weights will be saved in the `./sam_steel_lora` directory.
+For mobile-device camera upload, update `apiHost` in [frontend/lib/frontend.dart](frontend/lib/frontend.dart) to a reachable backend URL.
 
-#### B. Running the Backend Server
+## Training
 
-The `backend.py` file exposes an API endpoint for performing defect detection inference.
+### 1. Prepare segmentation data
 
-1. Start the backend server:
+Both SAM and MobileSAM training expect:
+
+```text
+backend/dataset/
+|-- source_images/
+`-- ground_truth/
+```
+
+Image and mask filenames should share the same stem.
+
+### 2. Train SAM + LoRA
 
 ```bash
+cd backend
+python train_sam.py
+```
+
+Outputs are saved to `backend/sam_steel_lora/`.
+
+### 3. Train MobileSAM
+
+Place `mobile_sam.pt` in `backend/` or `backend/MobileSAM/weights/`, then run:
+
+```bash
+cd backend
+python train_mobile_sam.py
+```
+
+Outputs are saved to `backend/mobilesam_defect_optimized/`.
+
+### 4. Prepare NEU-DET for YOLO26
+
+Expected original dataset layout:
+
+```text
+backend/yolo26/NEU-DET/
+|-- ANNOTATIONS/
+`-- IMAGES/
+```
+
+Convert XML annotations to YOLO labels:
+
+```bash
+cd backend/yolo26
+python voc_to_yolo.py
+```
+
+This creates:
+
+```text
+backend/yolo26/neu_det/
+|-- images/train/
+|-- images/val/
+|-- labels/train/
+|-- labels/val/
+`-- data.yaml
+```
+
+### 5. Train YOLO26
+
+```bash
+cd backend/yolo26
+python train_neudet.py
+```
+
+## Running Inference
+
+### Backend server
+
+```bash
+cd backend
+source .venv/bin/activate
 python backend.py
 ```
 
-#### C. Running the Frontend Application
-
-The Flutter application connects to the Python backend to perform inference.
-
-1. Ensure the backend server is running (see step B).
-
-2. From the `./frontend` directory, run the Flutter app on your desired platform (preferably web):
+By default, the backend starts a local camera worker using camera index `0`. To run the API without opening the local camera:
 
 ```bash
+ENABLE_LOCAL_CAMERA=0 python backend.py
+```
+
+The server runs on:
+
+```text
+http://127.0.0.1:5000
+```
+
+### Flutter app
+
+In a second terminal:
+
+```bash
+cd frontend
 flutter run
 ```
 
-3. Upload a steel surface image in the application to view the segmented defect masks.
+The app supports these live methods:
 
-### 📂 Project Structure
+- `SAM`
+- `mobileSAM`
+- `yolo26`
+- `yolo26+mobileSAM`
 
+## Backend API
+
+| Endpoint | Method | Purpose |
+| --- | --- | --- |
+| `/methods` | GET | List supported methods |
+| `/switch/options` | GET | List frontend switch options |
+| `/switch` | POST | Switch live backend mode |
+| `/config` | GET/POST | Read or update runtime config |
+| `/models/status` | GET | Inspect model path candidates and active models |
+| `/snapshot` | GET | Get latest local-camera processed frame |
+| `/predict` | POST | Upload one image for inference |
+| `/video_feed` | GET | MJPEG stream from latest backend frames |
+| `/logs/current` | GET | Return active CSV/JSON log paths |
+| `/pattern/manual` | POST | Generate pattern summary from a detection CSV |
+| `/pattern/latest` | GET | Return latest generated pattern summary |
+
+Example upload inference:
+
+```bash
+curl -X POST http://127.0.0.1:5000/predict \
+  -F "option=yolo26_mobilesam" \
+  -F "image=@sample/In_4.bmp"
 ```
-steel_defect_detection/
-├── dataset/                     # Directory for training and validation data (images and masks)
-├── frontend/                    # Flutter/Dart cross-platform user interface
-├── sam_steel_lora/              # Saved LoRA weights for the fine-tuned SAM model
-├── sample/                      # Sample input/output images
-├── .gitignore                   # Standard ignore file
-├── backend.py                   # Python script to serve the trained model as an API
-├── requirements.txt             # Python dependencies list
-├── test1.py                     # Script for evaluating the model on a test set
-└── train1.py                    # Script for training and fine-tuning the SAM model with LoRA
+
+## Runtime Outputs
+
+Hybrid detections are logged under `backend/logs/`:
+
+```text
+backend/logs/session_<timestamp>.csv
+backend/logs/detections_<timestamp>.json
+backend/logs/raw/
+backend/logs/overlay/
+backend/logs/mask/
+backend/logs/pattern/
 ```
 
-### 📔 Citations
+The CSV includes timestamps, frame indices, saved image paths, SAM confidence, defect area, YOLO labels, confidences, and bounding boxes.
 
-**Base Paper:** [Few-Shot Parameter Efficient Finetuning for SAM in Salient Steel Surface Defect Detection](https://ieeexplore.ieee.org/document/11062120)
+## Datasets Referenced
 
-```bibtext
+- **SD-Saliency-900**: pixel-level steel surface defect segmentation data used for SAM/MobileSAM training.
+- **NEU-DET**: bounding-box steel surface defect dataset used for YOLO26 training.
+
+## Citation / Paper Context
+
+Additional referenced work:
+
+```bibtex
 @ARTICLE{11062120,
   author={Su, Jiaojiao and Luo, Qiwu and Gui, Weihua and Yang, Chunhua},
   journal={IEEE Transactions on Industrial Informatics},
@@ -142,8 +343,6 @@ steel_defect_detection/
   volume={21},
   number={10},
   pages={7742-7753},
-  keywords={Steel;Strips;Defect detection;Decoding;Transformers;Visualization;Training;Biomedical imaging;Adaptation models;Remote sensing;Defect detection;finetune segment anything model (SAM);parameter-efficient fine-tuning (PEFT);strip steel},
-  doi={10.1109/TII.2025.3574815}}
+  doi={10.1109/TII.2025.3574815}
+}
 ```
-
-**Dataset:** [SD-saliency-900](https://www.kaggle.com/datasets/alex000kim/sdsaliency900)
